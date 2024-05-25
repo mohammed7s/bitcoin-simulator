@@ -174,7 +174,18 @@ mod test {
         Amount, OutPoint, Script, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram,
     };
     use bitcoin_script::script;
+
+    use std::fs::File;
+    use std::io::{self, Read};
     use std::str::FromStr;
+    use bitcoin::hashes::hex::FromHex;
+    
+    fn read_script_from_file(filename: &str) -> io::Result<Vec<u8>> {
+        let mut file = File::open(filename)?;
+        let mut hex_string = String::new();
+        file.read_to_string(&mut hex_string)?;
+        Ok(Vec::from_hex(&hex_string.trim()).expect("Decoding failed"))
+    }
 
     #[test]
     fn test_p2wsh() {
@@ -232,11 +243,17 @@ mod test {
             .unwrap(),
         );
 
-        let script = script! {
-            { 1234 } OP_EQUAL
-        };
+        // Read the scripts from files
+        let script_pub_key_bytes = read_script_from_file("scriptPK_logn_12.hex").expect("Unable to read script_pub_key file");
+        let script_sig_bytes = read_script_from_file("scriptS_logn_12.hex").expect("Unable to read script_sig file");
+        let script_pub_key = Script::from_bytes(&script_pub_key_bytes);
+        let script_sig = Script::from_bytes(&script_sig_bytes);
 
-        let taproot_builder = TaprootBuilder::new().add_leaf(0, script.clone()).unwrap();
+        // let script = script! {
+        //     { 1234 } OP_EQUAL
+        // };
+
+        let taproot_builder = TaprootBuilder::new().add_leaf(0, script_pub_key.into()).unwrap();
         let taproot_spend_info = taproot_builder.finalize(&secp, internal_key).unwrap();
 
         let witness_program =
@@ -258,14 +275,14 @@ mod test {
 
         let mut control_block_bytes = Vec::new();
         taproot_spend_info
-            .control_block(&(script.clone(), LeafVersion::TapScript))
+            .control_block(&(script_pub_key.into(), LeafVersion::TapScript))
             .unwrap()
             .encode(&mut control_block_bytes)
             .unwrap();
 
         let mut witness = Witness::new();
-        witness.push(scriptint_vec(1234));
-        witness.push(script! { { 1234 } OP_EQUAL }.to_bytes());
+        witness.push(script_sig.to_bytes());
+        witness.push(script_pub_key.to_bytes());
         witness.push(control_block_bytes);
 
         let input = TxIn {
